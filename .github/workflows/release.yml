@@ -27,12 +27,12 @@ jobs:
     runs-on: [self-hosted, Linux, X64, vulnetix-local]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0 # full history so the tagger can read prior tags/commits
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
