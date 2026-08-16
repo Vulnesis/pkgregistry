@@ -16,6 +16,12 @@ on:
 
 permissions:
   contents: write
+  # Required to create a tag whose tree contains .github/workflows/*. Adding a
+  # second workflow file to this repository is what broke tagging: GITHUB_TOKEN
+  # cannot push a ref carrying workflow changes with contents alone, and the
+  # failure reads as "Resource not accessible by integration" — which names
+  # neither the permission nor the file.
+  actions: write
 
 # Never let two releases race; queue them instead of cancelling.
 concurrency:
