@@ -353,7 +353,7 @@ func TestRegistryOptionDefaults(t *testing.T) {
 	}
 }
 
-func TestPersistErrorHandlerInvoked(t *testing.T) {
+func TestPersistErrorHandlerReceivesThePersisterError(t *testing.T) {
 	persistErr := errors.New("persist failed")
 	var got error
 	r := New(
