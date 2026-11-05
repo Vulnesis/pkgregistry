@@ -2,6 +2,9 @@ package pkgregistry
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -81,5 +84,70 @@ func TestCargoParentUpgradeTarget(t *testing.T) {
 	}
 	if got != "0.3.30" {
 		t.Fatalf("ParentUpgradeTarget = %q, want 0.3.30", got)
+	}
+}
+
+// pypiParentServer serves a PyPI project whose releases declare different
+// requires_dist ranges on "child", so the parent-upgrade path can exercise both
+// admitting and non-admitting candidates.
+func pypiParentServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	const project = `{
+	  "info": {"version": "1.2.0"},
+	  "releases": {
+	    "1.0.0": [{"upload_time_iso_8601": "2023-01-01T00:00:00Z", "yanked": false}],
+	    "1.1.0": [{"upload_time_iso_8601": "2023-02-01T00:00:00Z", "yanked": false}],
+	    "1.2.0": [{"upload_time_iso_8601": "2023-03-01T00:00:00Z", "yanked": false}]
+	  }
+	}`
+	versionBodies := map[string]string{
+		"1.0.0": `{"info": {"version": "1.0.0", "requires_dist": ["child (<2.0)"]}, "releases": {"1.0.0": [{"upload_time_iso_8601": "2023-01-01T00:00:00Z"}]}}`,
+		"1.1.0": `{"info": {"version": "1.1.0", "requires_dist": ["child (>=2.0,<3)"]}, "releases": {"1.1.0": [{"upload_time_iso_8601": "2023-02-01T00:00:00Z"}]}}`,
+		"1.2.0": `{"info": {"version": "1.2.0", "requires_dist": ["child (>=2.0,<3)"]}, "releases": {"1.2.0": [{"upload_time_iso_8601": "2023-03-01T00:00:00Z"}]}}`,
+	}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// /pypi/<pkg>/json vs /pypi/<pkg>/<version>/json
+		parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
+		if len(parts) == 3 {
+			_, _ = w.Write([]byte(project))
+			return
+		}
+		if body := versionBodies[parts[2]]; body != "" {
+			_, _ = w.Write([]byte(body))
+			return
+		}
+		_, _ = w.Write([]byte(`{"info": {}, "releases": {}}`))
+	}))
+}
+
+func TestPypiParentUpgradeTarget(t *testing.T) {
+	srv := pypiParentServer(t)
+	defer srv.Close()
+	r := New(WithBaseURL(EcosystemPyPI, srv.URL))
+
+	// 1.0.0 requires child <2.0 (does not admit 2.1.0); 1.1.0 and 1.2.0 require
+	// child >=2.0,<3. The smallest parent >= 1.0.0 admitting 2.1.0 is 1.1.0.
+	got, err := r.ParentUpgradeTarget(context.Background(), EcosystemPyPI, "parent", "1.0.0", "child", "2.1.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "1.1.0" {
+		t.Fatalf("ParentUpgradeTarget = %q, want 1.1.0", got)
+	}
+}
+
+func TestParentUpgradeTargetNoAdmittingParent(t *testing.T) {
+	srv := pypiParentServer(t)
+	defer srv.Close()
+	r := New(WithBaseURL(EcosystemPyPI, srv.URL))
+
+	// No release admits child 3.0.0: 1.0.0 requires <2.0, 1.1.0/1.2.0 require <3.
+	got, err := r.ParentUpgradeTarget(context.Background(), EcosystemPyPI, "parent", "1.0.0", "child", "3.0.0")
+	if err != nil {
+		t.Fatalf("ParentUpgradeTarget returned error: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("ParentUpgradeTarget = %q, want empty", got)
 	}
 }
