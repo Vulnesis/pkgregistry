@@ -2,6 +2,7 @@ package pkgregistry
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,6 +29,14 @@ const pypiVersionFixture = `{
   },
   "releases": {"2.31.0": [{"upload_time_iso_8601": "2023-05-22T00:00:00Z"}]}
 }`
+
+func pypiProjectServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+}
 
 func pypiTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -84,5 +93,70 @@ func TestPypiRequiresDistParsing(t *testing.T) {
 	chardet, ok := findDep(meta.Dependencies, "chardet")
 	if !ok || chardet.Scope != "optional" {
 		t.Fatalf("chardet = %+v, want optional scope (extra marker)", chardet)
+	}
+}
+
+func TestPypiLatest(t *testing.T) {
+	srv := pypiProjectServer(t, pypiProjectFixture)
+	defer srv.Close()
+	c, _ := New(WithBaseURL(EcosystemPyPI, srv.URL)).Client(EcosystemPyPI)
+	got, err := c.Latest(context.Background(), "requests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "2.31.0" {
+		t.Fatalf("Latest = %q, want 2.31.0", got)
+	}
+
+	empty := pypiProjectServer(t, `{"info": {}, "releases": {}}`)
+	defer empty.Close()
+	ce, _ := New(WithBaseURL(EcosystemPyPI, empty.URL)).Client(EcosystemPyPI)
+	if _, err := ce.Latest(context.Background(), "ghost"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Latest with unset info.version = %v, want ErrNotFound", err)
+	}
+}
+
+func TestPypiVersionsEmptyRelease(t *testing.T) {
+	srv := pypiProjectServer(t, `{"info": {}, "releases": {"1.0.0": []}}`)
+	defer srv.Close()
+	c, _ := New(WithBaseURL(EcosystemPyPI, srv.URL)).Client(EcosystemPyPI)
+	versions, err := c.Versions(context.Background(), "empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("got %d versions, want 1", len(versions))
+	}
+	if versions[0].Yanked {
+		t.Fatalf("release with zero files should not be yanked: %+v", versions[0])
+	}
+}
+
+func TestParseRequiresDistEdges(t *testing.T) {
+	tests := []struct {
+		name string
+		reqs []string
+		want []DeclaredDep
+	}{
+		{name: "empty list", reqs: nil, want: nil},
+		{name: "unparseable spec", reqs: []string{">=1.0"}, want: nil},
+		{
+			name: "extra== marker form",
+			reqs: []string{"chardet<5 ; extra=='use_chardet_on_py3'"},
+			want: []DeclaredDep{{Name: "chardet", Range: "<5", Ecosystem: EcosystemPyPI, Scope: "optional"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseRequiresDist(tt.reqs)
+			if len(got) != len(tt.want) {
+				t.Fatalf("parseRequiresDist(%v) = %+v, want %+v", tt.reqs, got, tt.want)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Fatalf("parseRequiresDist(%v)[%d] = %+v, want %+v", tt.reqs, i, got[i], tt.want[i])
+				}
+			}
+		})
 	}
 }
