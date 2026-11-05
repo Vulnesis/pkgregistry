@@ -57,7 +57,8 @@ func (r *Registry) get(ctx context.Context, url, accept string) ([]byte, error) 
 			continue
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
-		resp.Body.Close()
+		// The body is fully read, so a Close error carries nothing actionable.
+		_ = resp.Body.Close()
 
 		switch {
 		case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
