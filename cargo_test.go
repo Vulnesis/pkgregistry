@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +62,51 @@ func TestCargoVersionsAndLatest(t *testing.T) {
 	if latest != "0.3.31" {
 		t.Fatalf("Latest = %q, want 0.3.31", latest)
 	}
+}
+
+func TestCargoIndexPathEmpty(t *testing.T) {
+	if got := cargoIndexPath(""); got != "" {
+		t.Errorf("cargoIndexPath(\"\") = %q, want empty string", got)
+	}
+}
+
+func FuzzCargoIndexPath(f *testing.F) {
+	seeds := []string{"", "a", "ab", "abc", "serde", "Time", "my-crate", "ASCII"}
+	for _, s := range seeds {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, name string) {
+		got := cargoIndexPath(name)
+
+		n := strings.ToLower(strings.TrimSpace(name))
+		switch len(n) {
+		case 0:
+			if got != "" {
+				t.Errorf("cargoIndexPath(%q) = %q, want empty", name, got)
+			}
+		case 1:
+			if got != "/1/"+n {
+				t.Errorf("cargoIndexPath(%q) = %q, want /1/%s", name, got, n)
+			}
+		case 2:
+			if got != "/2/"+n {
+				t.Errorf("cargoIndexPath(%q) = %q, want /2/%s", name, got, n)
+			}
+		case 3:
+			if got != "/3/"+n[:1]+"/"+n {
+				t.Errorf("cargoIndexPath(%q) = %q, want /3/%s/%s", name, got, n[:1], n)
+			}
+		default:
+			if got != "/"+n[:2]+"/"+n[2:4]+"/"+n {
+				t.Errorf("cargoIndexPath(%q) = %q, want /%s/%s/%s", name, got, n[:2], n[2:4], n)
+			}
+		}
+
+		// Case-stability: lowercasing input lowercases output.
+		if strings.ToLower(cargoIndexPath(name)) != cargoIndexPath(strings.ToLower(name)) {
+			t.Errorf("cargoIndexPath not case-stable for %q", name)
+		}
+	})
 }
 
 func TestCargoDeclaredRangesAndScopes(t *testing.T) {
