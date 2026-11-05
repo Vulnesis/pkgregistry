@@ -6,3 +6,4 @@
 
 # Vulnetix local tooling cache (machine-specific)
 .vulnetix/
+!.vulnetix/workflow.yaml
