@@ -1,11 +1,15 @@
 package pkgregistry
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 )
 
 // recordingPersister captures what the clients persist so tests can assert that
@@ -27,6 +31,65 @@ func (p *recordingPersister) PersistVersions(_ context.Context, ecosystem, pkg s
 func (p *recordingPersister) PersistDeclaredDeps(_ context.Context, ecosystem, pkg, version string, d []DeclaredDep) error {
 	p.deps[ecosystem+":"+pkg+"@"+version] = d
 	return nil
+}
+
+// fakeDoer is a test httpDoer that returns scripted responses and records the
+// requests it receives so tests can assert retry behaviour and headers.
+type fakeDoer struct {
+	mu    sync.Mutex
+	calls []*http.Request
+	steps []fakeDoerStep
+	next  int
+}
+
+type fakeDoerStep struct {
+	response *http.Response
+	err      error
+}
+
+func newFakeDoer() *fakeDoer {
+	return &fakeDoer{}
+}
+
+func (f *fakeDoer) addResponse(status int, body []byte) {
+	f.steps = append(f.steps, fakeDoerStep{
+		response: &http.Response{
+			StatusCode: status,
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Header:     http.Header{},
+		},
+	})
+}
+
+func (f *fakeDoer) addError(err error) {
+	f.steps = append(f.steps, fakeDoerStep{err: err})
+}
+
+func (f *fakeDoer) Do(req *http.Request) (*http.Response, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, req)
+	if f.next >= len(f.steps) {
+		return nil, errors.New("fakeDoer: no scripted response")
+	}
+	step := f.steps[f.next]
+	f.next++
+	return step.response, step.err
+}
+
+func (f *fakeDoer) request(n int) *http.Request {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if n >= len(f.calls) {
+		return nil
+	}
+	return f.calls[n]
+}
+
+func (f *fakeDoer) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
 }
 
 func TestRegistryClientDispatch(t *testing.T) {
@@ -135,6 +198,95 @@ func TestGetReturnsNotFoundOn404(t *testing.T) {
 	c, _ := r.Client(EcosystemNPM)
 	if _, err := c.Versions(context.Background(), "ghost"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Versions on 404 = %v, want ErrNotFound", err)
+	}
+}
+
+func TestGetRetryOn5xxThenSuccess(t *testing.T) {
+	fake := newFakeDoer()
+	fake.addResponse(http.StatusServiceUnavailable, nil)
+	fake.addResponse(http.StatusOK, []byte(`{"versions":{"1.0.0":{}}}`))
+
+	userAgent := "test-retry"
+	r := New(WithHTTPClient(fake), WithUserAgent(userAgent))
+	c, _ := r.Client(EcosystemNPM)
+	ctx := context.Background()
+	versions, err := c.Versions(ctx, "pkg")
+	if err != nil {
+		t.Fatalf("Versions = %v, want nil", err)
+	}
+	if len(versions) != 1 || versions[0].Version != "1.0.0" {
+		t.Fatalf("Versions = %v, want [1.0.0]", versions)
+	}
+	if fake.callCount() != 2 {
+		t.Fatalf("retry test made %d calls, want 2", fake.callCount())
+	}
+	for i := 0; i < fake.callCount(); i++ {
+		req := fake.request(i)
+		if req == nil {
+			t.Fatalf("request %d was nil", i)
+		}
+		if got := req.Header.Get("Accept"); got != "application/json" {
+			t.Errorf("request %d Accept = %q, want application/json", i, got)
+		}
+		if got := req.Header.Get("User-Agent"); got != userAgent {
+			t.Errorf("request %d User-Agent = %q, want %q", i, got, userAgent)
+		}
+	}
+}
+
+func TestGetTransportErrorThenSuccess(t *testing.T) {
+	fake := newFakeDoer()
+	fake.addError(errors.New("boom"))
+	fake.addResponse(http.StatusOK, []byte(`{"versions":{"2.0.0":{}}}`))
+
+	r := New(WithHTTPClient(fake))
+	c, _ := r.Client(EcosystemNPM)
+	versions, err := c.Versions(context.Background(), "pkg")
+	if err != nil {
+		t.Fatalf("Versions = %v, want nil", err)
+	}
+	if len(versions) != 1 || versions[0].Version != "2.0.0" {
+		t.Fatalf("Versions = %v, want [2.0.0]", versions)
+	}
+	if fake.callCount() != 2 {
+		t.Fatalf("retry test made %d calls, want 2", fake.callCount())
+	}
+}
+
+func TestGetNonRetryableStatus(t *testing.T) {
+	fake := newFakeDoer()
+	fake.addResponse(http.StatusForbidden, nil)
+	// Add a successful response that should never be reached.
+	fake.addResponse(http.StatusOK, []byte(`{"versions":{"3.0.0":{}}}`))
+
+	r := New(WithHTTPClient(fake))
+	c, _ := r.Client(EcosystemNPM)
+	_, err := c.Versions(context.Background(), "pkg")
+	if err == nil {
+		t.Fatalf("Versions = nil, want error")
+	}
+	if fake.callCount() != 1 {
+		t.Fatalf("non-retryable test made %d calls, want 1", fake.callCount())
+	}
+}
+
+func TestGetContextCancelledDuringRetry(t *testing.T) {
+	fake := newFakeDoer()
+	fake.addResponse(http.StatusServiceUnavailable, nil)
+	fake.addResponse(http.StatusOK, []byte(`{"versions":{"4.0.0":{}}}`))
+
+	r := New(WithHTTPClient(fake))
+	c, _ := r.Client(EcosystemNPM)
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel after the first request returns so the second attempt observes
+	// ctx.Done() during its 200ms backoff.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	_, err := c.Versions(ctx, "pkg")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Versions = %v, want context.Canceled", err)
 	}
 }
 
