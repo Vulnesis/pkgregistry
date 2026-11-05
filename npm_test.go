@@ -29,6 +29,35 @@ func npmTestServer(t *testing.T) *httptest.Server {
 	}))
 }
 
+func TestNpmScopedPackumentURLAndHeaders(t *testing.T) {
+	var gotRequestURI, gotAccept, gotUserAgent string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// RequestURI is the raw wire form; r.URL.Path already decodes %2F.
+		gotRequestURI = r.RequestURI
+		gotAccept = r.Header.Get("Accept")
+		gotUserAgent = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(npmPackumentFixture))
+	}))
+	defer srv.Close()
+
+	c, _ := New(WithBaseURL(EcosystemNPM, srv.URL)).Client(EcosystemNPM)
+	if _, err := c.Versions(context.Background(), "@babel/core"); err != nil {
+		t.Fatal(err)
+	}
+
+	wantRequestURI := "/@babel%2Fcore"
+	if gotRequestURI != wantRequestURI {
+		t.Fatalf("request URI = %q, want %q", gotRequestURI, wantRequestURI)
+	}
+	if gotAccept != "application/json" {
+		t.Fatalf("Accept = %q, want application/json", gotAccept)
+	}
+	if gotUserAgent != "vulnetix-pkgregistry" {
+		t.Fatalf("User-Agent = %q, want vulnetix-pkgregistry", gotUserAgent)
+	}
+}
+
 func TestNpmVersionsAndPersist(t *testing.T) {
 	srv := npmTestServer(t)
 	defer srv.Close()
