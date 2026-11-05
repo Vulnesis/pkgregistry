@@ -2,6 +2,7 @@ package pkgregistry
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -129,5 +130,65 @@ func TestNpmVersionMetadataDeclaredRanges(t *testing.T) {
 	}
 	if !dep.Deprecated {
 		t.Fatal("5.0.0-beta.1 should be deprecated")
+	}
+}
+
+const npmNoDistTagsFixture = `{
+  "versions": {
+    "4.17.1": {"version": "4.17.1"},
+    "4.18.2": {"version": "4.18.2"},
+    "5.0.0-beta.1": {"version": "5.0.0-beta.1"}
+  },
+  "time": {
+    "4.17.1": "2019-05-25T00:00:00Z",
+    "4.18.2": "2022-10-08T00:00:00Z",
+    "5.0.0-beta.1": "2024-01-01T00:00:00Z"
+  }
+}`
+
+const npmEmptyVersionsFixture = `{
+  "dist-tags": {},
+  "versions": {},
+  "time": {}
+}`
+
+func npmFallbackTestServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+}
+
+func TestNpmLatestFallback(t *testing.T) {
+	srv := npmFallbackTestServer(t, npmNoDistTagsFixture)
+	defer srv.Close()
+	c, _ := New(WithBaseURL(EcosystemNPM, srv.URL)).Client(EcosystemNPM)
+	got, err := c.Latest(context.Background(), "express")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "4.18.2" {
+		t.Fatalf("Latest = %q, want 4.18.2", got)
+	}
+}
+
+func TestNpmLatestNotFound(t *testing.T) {
+	srv := npmFallbackTestServer(t, npmEmptyVersionsFixture)
+	defer srv.Close()
+	c, _ := New(WithBaseURL(EcosystemNPM, srv.URL)).Client(EcosystemNPM)
+	got, err := c.Latest(context.Background(), "express")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Latest = (%q, %v), want ErrNotFound", got, err)
+	}
+}
+
+func TestNpmVersionMetadataNotFound(t *testing.T) {
+	srv := npmFallbackTestServer(t, npmNoDistTagsFixture)
+	defer srv.Close()
+	c, _ := New(WithBaseURL(EcosystemNPM, srv.URL)).Client(EcosystemNPM)
+	_, err := c.VersionMetadata(context.Background(), "express", "99.99.99")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("VersionMetadata = %v, want ErrNotFound", err)
 	}
 }
