@@ -298,3 +298,70 @@ func findDep(deps []DeclaredDep, name string) (DeclaredDep, bool) {
 	}
 	return DeclaredDep{}, false
 }
+
+// erroringPersister is a Persister that always fails, so tests can assert the
+// error handler is invoked without a live registry round trip.
+type erroringPersister struct {
+	err error
+}
+
+func (p *erroringPersister) PersistVersions(_ context.Context, _, _ string, _ []Version) error {
+	return p.err
+}
+
+func (p *erroringPersister) PersistDeclaredDeps(_ context.Context, _, _, _ string, _ []DeclaredDep) error {
+	return p.err
+}
+
+func TestNormalizePyPIName(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "lowercase", in: "Requests", want: "requests"},
+		{name: "dots", in: "ruamel.yaml", want: "ruamel-yaml"},
+		{name: "underscores", in: "zope_interface", want: "zope-interface"},
+		{name: "whitespace", in: "  Requests  ", want: "requests"},
+		{name: "mixed separators", in: "Zope.Interface_Help", want: "zope-interface-help"},
+		{name: "empty", in: "", want: ""},
+		{name: "whitespace only", in: "   ", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizePyPIName(tt.in); got != tt.want {
+				t.Fatalf("normalizePyPIName(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRegistryOptionDefaults(t *testing.T) {
+	r := New(WithHTTPClient(nil), WithUserAgent(""), WithPersistErrorHandler(nil), WithBaseURL(EcosystemPyPI, ""))
+
+	if r.httpClient == nil {
+		t.Fatal("WithHTTPClient(nil) cleared the default HTTP client")
+	}
+	if r.userAgent != "vulnetix-pkgregistry" {
+		t.Fatalf("userAgent = %q, want default %q", r.userAgent, "vulnetix-pkgregistry")
+	}
+	if r.onPersistErr != nil {
+		t.Fatal("WithPersistErrorHandler(nil) set a handler")
+	}
+	if got := r.baseURL(EcosystemPyPI, "https://pypi.org/simple"); got != "https://pypi.org/simple" {
+		t.Fatalf("baseURL with empty override = %q, want default", got)
+	}
+}
+
+func TestPersistErrorHandlerInvoked(t *testing.T) {
+	persistErr := errors.New("persist failed")
+	var got error
+	r := New(
+		WithPersister(&erroringPersister{err: persistErr}),
+		WithPersistErrorHandler(func(err error) { got = err }),
+	)
+	r.persistVersions(context.Background(), EcosystemNPM, "pkg", []Version{{Version: "1.0.0"}})
+	if !errors.Is(got, persistErr) {
+		t.Fatalf("handler received %v, want %v", got, persistErr)
+	}
+}
