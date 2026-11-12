@@ -95,3 +95,74 @@ func FuzzNormalizePyPIName(f *testing.F) {
 		}
 	})
 }
+
+// FuzzSatisfies probes Satisfies for the constraint-parsing invariants the
+// fixed tables cannot cover: wildcard and empty constraints, operator round
+// trips, and no-panic on arbitrary input. Seed with the existing happy-path
+// cases plus pathological inputs.
+func FuzzSatisfies(f *testing.F) {
+	semverSeeds := []string{
+		"^1.19.0", "~1.2.0", ">=1.21.1 <2.0.0", "1.2.3", "2.x || 3.x",
+		"1.4.x", "*", "", " ", " 1.2.3 ", "=1.2.3", ">1.2.3", "<=1.2.3",
+		"^0.2.5", "1.*", "1.2.*", "1.X", ">=1.0.0,<2.0.0", "~>1.2",
+	}
+	pep440Seeds := []string{
+		">=1.21.1,<3", ">=2.0", "~=1.4", "!=2.0.0", "==2.0.0", "===2.0.0",
+		"==2.0.*", "2.0.0", "*", "", " ", "<2.0", ">1.0", "<=3.0",
+	}
+	versions := []string{"0.0.0", "1.2.3", "2.0.0", "3.1.4", "9.9.9", "1.4.5", "2.31.0", "v1.2.3"}
+	for _, v := range versions {
+		for _, c := range semverSeeds {
+			f.Add(EcosystemNPM, v, c)
+		}
+		for _, c := range pep440Seeds {
+			f.Add(EcosystemPyPI, v, c)
+		}
+	}
+
+	f.Fuzz(func(t *testing.T, eco, ver, constraint string) {
+		if eco != EcosystemNPM && eco != EcosystemPyPI {
+			t.Skip("fuzz corpus covers SemVer and PEP 440 ecosystems only")
+		}
+		// Invariant 5: arbitrary generated constraints must not panic.
+		Satisfies(eco, ver, constraint)
+		// Invariants 1 and 2: wildcard and empty constraints admit any version.
+		if !Satisfies(eco, ver, "*") {
+			t.Fatalf("Satisfies(%q, %q, %q) = false, want true for wildcard", eco, ver, "*")
+		}
+		if !Satisfies(eco, ver, "") {
+			t.Fatalf("Satisfies(%q, %q, %q) = false, want true for empty", eco, ver, "")
+		}
+		if eco == EcosystemNPM {
+			// Invariant 3: "=" acceptance implies the version compares equal to
+			// itself, i.e. the round trip is consistent.
+			if Satisfies(eco, ver, "="+ver) && compareVersions(ver, ver) != 0 {
+				t.Fatalf("Satisfies(npm, %q, %q) = true but compareVersions(%q, %q) != 0", ver, "="+ver, ver, ver)
+			}
+		}
+		if eco == EcosystemPyPI && isCanonicalPEP440(ver) {
+			// Invariant 4: == admits and != rejects a canonical version.
+			if !Satisfies(eco, ver, "=="+ver) {
+				t.Fatalf("Satisfies(pypi, %q, %q) = false, want true", ver, "=="+ver)
+			}
+			if Satisfies(eco, ver, "!="+ver) {
+				t.Fatalf("Satisfies(pypi, %q, %q) = true, want false", ver, "!="+ver)
+			}
+		}
+	})
+}
+
+// isCanonicalPEP440 reports whether v is a plain numeric PEP 440 release with
+// dots, so "=="+v and "!="+v are unambiguous round trips.
+func isCanonicalPEP440(v string) bool {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	if v == "" {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		if (v[i] < '0' || v[i] > '9') && v[i] != '.' {
+			return false
+		}
+	}
+	return true
+}
