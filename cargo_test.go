@@ -2,7 +2,6 @@ package pkgregistry
 
 import (
 	"context"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -17,14 +16,11 @@ const cargoIndexFixture = `{"name":"time","vers":"0.3.30","deps":[{"name":"libc"
 
 func cargoTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Sanity: the sparse path prefix for "time" (4+ chars) is /ti/me/time.
-		if r.URL.Path != "/ti/me/time" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		_, _ = w.Write([]byte(cargoIndexFixture))
-	}))
+	// newFixtureServer exact-matches the path and 404s otherwise, so the
+	// sparse path sanity check for "time" (4+ chars) stays /ti/me/time.
+	return newFixtureServer(t, map[string]fixtureRoute{
+		"/ti/me/time": {body: []byte(cargoIndexFixture)},
+	})
 }
 
 func TestCargoIndexPath(t *testing.T) {

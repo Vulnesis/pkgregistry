@@ -32,7 +32,7 @@ const pypiVersionFixture = `{
 
 func pypiProjectServer(t *testing.T, body string) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	return newFixtureHandlerServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(body))
 	}))
@@ -40,7 +40,7 @@ func pypiProjectServer(t *testing.T, body string) *httptest.Server {
 
 func pypiTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	return newFixtureHandlerServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// /pypi/<pkg>/json vs /pypi/<pkg>/<version>/json
 		parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/")

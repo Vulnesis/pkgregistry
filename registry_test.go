@@ -299,6 +299,42 @@ func findDep(deps []DeclaredDep, name string) (DeclaredDep, bool) {
 	return DeclaredDep{}, false
 }
 
+// fixtureRoute maps a request path to a recorded response.
+type fixtureRoute struct {
+	status      int
+	contentType string
+	body        []byte
+}
+
+// newFixtureServer builds an httptest.Server that serves each route on its
+// exact path and 404s anything else. The server is closed on test cleanup.
+func newFixtureServer(t *testing.T, routes map[string]fixtureRoute) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	for path, route := range routes {
+		mux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) {
+			// Headers must be set before WriteHeader or they are dropped.
+			if route.contentType != "" {
+				w.Header().Set("Content-Type", route.contentType)
+			}
+			if route.status != 0 {
+				w.WriteHeader(route.status)
+			}
+			_, _ = w.Write(route.body)
+		})
+	}
+	return newFixtureHandlerServer(t, mux)
+}
+
+// newFixtureHandlerServer builds an httptest.Server from a custom handler, for
+// fixtures with their own routing. The server is closed on test cleanup.
+func newFixtureHandlerServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 // erroringPersister is a Persister that always fails, so tests can assert the
 // error handler is invoked without a live registry round trip.
 type erroringPersister struct {
