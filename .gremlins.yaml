@@ -1,0 +1,11 @@
+# Mutation testing with gremlins (github.com/go-gremlins/gremlins).
+# Run from the repository root with `gremlins unleash`; CI runs the same command
+# in .github/workflows/mutation.yml.
+unleash:
+  # The default timeout coefficient is too short for this package: most mutants
+  # time out and the report is meaningless. 10 gives a clean run.
+  timeout-coefficient: 10
+  threshold:
+    # Fail (exit code 10) when test efficacy drops below this percentage. Kept
+    # conservative so CI stays green while follow-up work kills more mutants.
+    efficacy: 70

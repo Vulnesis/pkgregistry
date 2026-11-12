@@ -1,0 +1,47 @@
+name: Mutation testing
+
+# Runs gremlins against the package and fails when test efficacy drops below the
+# threshold in .gremlins.yaml. A runner that already has gremlins in
+# $(go env GOPATH)/bin uses it; otherwise the pinned version below is installed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GREMLINS_VERSION: v0.6.0
+
+jobs:
+  gremlins:
+    name: Mutation testing (gremlins)
+    runs-on: [self-hosted, Linux, X64, vulnetix-local]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v6.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install gremlins
+        run: |
+          gremlins="$(go env GOPATH)/bin/gremlins"
+          if [ ! -x "$gremlins" ]; then
+            go install "github.com/go-gremlins/gremlins/cmd/gremlins@${GREMLINS_VERSION}"
+          fi
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run gremlins
+        run: gremlins unleash

@@ -106,3 +106,17 @@ VULNETIX_LIVE_REGISTRY=1 go test ./...
 go test ./...
 go vet ./...
 ```
+### Mutation testing
+
+[gremlins](https://github.com/go-gremlins/gremlins) mutates the package and
+reports which mutants the tests fail to catch. The settings live in
+`.gremlins.yaml` (timeout coefficient 10, efficacy threshold 70%), so a plain run
+from the repository root uses them:
+
+```sh
+gremlins unleash
+```
+
+It exits with code 10 when test efficacy falls below the threshold. CI runs the
+same command in `.github/workflows/mutation.yml`. Do not run it with the default
+timeout coefficient: most mutants then time out and the report is misleading.
