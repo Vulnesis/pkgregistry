@@ -27,6 +27,39 @@ func TestSatisfiesSemver(t *testing.T) {
 		{"1.4.9", "1.4.x", true},
 		{"1.5.0", "1.4.x", false},
 		{"9.9.9", "*", true},
+		// Caret on 0.x: the upper bound tracks the minor (0.2.x) or, for 0.0.x,
+		// the patch, and the lower bound is inclusive.
+		{"0.2.5", "^0.2.5", true},
+		{"0.2.9", "^0.2.5", true},
+		{"0.3.0", "^0.2.5", false},
+		{"0.0.3", "^0.0.3", true},
+		{"0.0.4", "^0.0.3", false},
+		{"1.9.9", "^1", true},
+		{"2.0.0", "^1", false},
+		// Single-segment tilde bumps the major; two segments bump the minor.
+		{"1.0.0", "~1", true},
+		{"1.4.5", "~1", true},
+		{"2.0.0", "~1", false},
+		{"1.2.9", "~1.2", true},
+		{"1.3.0", "~1.2", false},
+		// Inclusive/exclusive comparator boundaries.
+		{"1.2.3", "<=1.2.3", true},
+		{"1.2.4", "<=1.2.3", false},
+		{"1.2.3", ">1.2.3", false},
+		{"1.2.4", ">1.2.3", true},
+		{"1.2.2", "<1.2.3", true},
+		{"1.2.3", "<1.2.3", false},
+		{"1.2.3", "=1.2.3", true},
+		{"1.2.4", "=1.2.3", false},
+		// Major-only x-range spans the whole major; a two-segment one spans the minor.
+		{"1.0.0", "1.x", true},
+		{"1.99.0", "1.x", true},
+		{"2.0.0", "1.x", false},
+		{"1.0.0", "1", true},
+		{"2.0.0", "1", false},
+		{"1.2.0", "1.2.*", true},
+		{"1.3.0", "1.2.*", false},
+		{"1.1.9", "1.2.*", false},
 	}
 	for _, tc := range cases {
 		if got := Satisfies(EcosystemNPM, tc.ver, tc.constraint); got != tc.want {
@@ -47,6 +80,29 @@ func TestSatisfiesPEP440(t *testing.T) {
 		{"2.0.0", "~=1.4", false},
 		{"2.0.0", "!=2.0.0", false},
 		{"2.0.1", "!=2.0.0", true},
+		// Exact bounds for each comparator: equal, one step below, one step above.
+		{"2.0.0", ">=2.0.0", true},
+		{"1.9.9", ">=2.0.0", false},
+		{"2.0.0", "<=2.0.0", true},
+		{"2.0.1", "<=2.0.0", false},
+		{"2.0.0", ">2.0.0", false},
+		{"2.0.1", ">2.0.0", true},
+		{"2.0.0", "<2.0.0", false},
+		{"1.9.9", "<2.0.0", true},
+		{"2.0.0", "==2.0.0", true},
+		{"2.0.0", "===2.0.0", true},
+		{"2.0.1", "==2.0.0", false},
+		{"2.0.3", "==2.0.*", true},
+		// Compatible release: lower bound inclusive, next-minor upper bound exclusive.
+		{"1.4.2", "~=1.4.2", true},
+		{"1.4.1", "~=1.4.2", false},
+		{"1.4.99", "~=1.4.2", true},
+		{"1.5.0", "~=1.4.2", false},
+		{"1.4.0", "~=1.4", true},
+		{"1.3.9", "~=1.4", false},
+		// A bare version with no operator is an exact match.
+		{"2.0.0", "2.0.0", true},
+		{"2.0.1", "2.0.0", false},
 	}
 	for _, tc := range cases {
 		if got := Satisfies(EcosystemPyPI, tc.ver, tc.constraint); got != tc.want {
@@ -149,5 +205,73 @@ func TestParentUpgradeTargetNoAdmittingParent(t *testing.T) {
 	}
 	if got != "" {
 		t.Fatalf("ParentUpgradeTarget = %q, want empty", got)
+	}
+}
+
+func TestNumericParts(t *testing.T) {
+	cases := map[string][3]int{
+		"1.2.3":         {1, 2, 3},
+		"v1.2.3":        {1, 2, 3},
+		"1.2":           {1, 2, 0},
+		"1":             {1, 0, 0},
+		"1.2.3.4":       {1, 2, 3},
+		"1.2.3-rc.1":    {1, 2, 3},
+		"1.2.3+build.5": {1, 2, 3},
+		// A leading "-" is a prerelease marker with an empty core, not a sign.
+		"-5":  {0, 0, 0},
+		"":    {0, 0, 0},
+		"a.b": {0, 0, 0},
+	}
+	for in, want := range cases {
+		if got := numericParts(in); got != want {
+			t.Errorf("numericParts(%q) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+func TestXRangeBounds(t *testing.T) {
+	cases := []struct {
+		in, lo, hi string
+	}{
+		{"1", "1.0.0", "2.0.0"},
+		{"1.x", "1.0.0", "2.0.0"},
+		{"1.*", "1.0.0", "2.0.0"},
+		{"v2.X", "2.0.0", "3.0.0"},
+		// Exactly two segments with a concrete minor spans that minor only.
+		{"1.2", "1.2.0", "1.3.0"},
+		{"1.2.x", "1.2.0", "1.3.0"},
+		{"1.2.*", "1.2.0", "1.3.0"},
+	}
+	for _, tc := range cases {
+		lo, hi := xRangeBounds(tc.in)
+		if lo != tc.lo || hi != tc.hi {
+			t.Errorf("xRangeBounds(%q) = (%q, %q), want (%q, %q)", tc.in, lo, hi, tc.lo, tc.hi)
+		}
+	}
+}
+
+func TestSeg(t *testing.T) {
+	segs := []string{"1", "2"}
+	for i, want := range []string{"1", "2", ""} {
+		if got := seg(segs, i); got != want {
+			t.Errorf("seg(%v, %d) = %q, want %q", segs, i, got, want)
+		}
+	}
+	if got := seg(nil, 0); got != "" {
+		t.Errorf("seg(nil, 0) = %q, want empty", got)
+	}
+}
+
+func TestTildeUpper(t *testing.T) {
+	cases := map[string]string{
+		"1":     "2.0.0",
+		"1.2":   "1.3.0",
+		"1.2.3": "1.3.0",
+		"v0.4":  "0.5.0",
+	}
+	for in, want := range cases {
+		if got := tildeUpper(in); got != want {
+			t.Errorf("tildeUpper(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
