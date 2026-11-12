@@ -10,3 +10,9 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+    ignore:
+      # v7 changes how the next version is calculated and may skip a release
+      # for pushes with only non-releasing commits, which conflicts with the
+      # Release workflow's default_bump: patch tagging. Migrate deliberately.
+      - dependency-name: mathieudutour/github-tag-action
+        update-types: ["version-update:semver-major"]
