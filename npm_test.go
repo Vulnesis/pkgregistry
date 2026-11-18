@@ -54,8 +54,8 @@ func TestNpmScopedPackumentURLAndHeaders(t *testing.T) {
 	if gotAccept != "application/json" {
 		t.Fatalf("Accept = %q, want application/json", gotAccept)
 	}
-	if gotUserAgent != "vulnesis-pkgregistry" {
-		t.Fatalf("User-Agent = %q, want vulnesis-pkgregistry", gotUserAgent)
+	if gotUserAgent != "vulnetix-pkgregistry" {
+		t.Fatalf("User-Agent = %q, want vulnetix-pkgregistry", gotUserAgent)
 	}
 }
 

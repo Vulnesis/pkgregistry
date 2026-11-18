@@ -69,7 +69,7 @@ Errors: `ErrUnsupportedEcosystem` (no client for the requested ecosystem) and
 | `WithBaseURL` | Override the registry base URL for one ecosystem, for example an org mirror or an `httptest` server in tests. |
 | `WithUserAgent` | Set the `User-Agent` sent on registry requests. |
 
-The default user agent is `"vulnesis-pkgregistry"`.
+The default user agent is `"vulnetix-pkgregistry"`.
 
 ## HTTP behaviour
 

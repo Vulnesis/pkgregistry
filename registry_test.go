@@ -378,8 +378,8 @@ func TestRegistryOptionDefaults(t *testing.T) {
 	if r.httpClient == nil {
 		t.Fatal("WithHTTPClient(nil) cleared the default HTTP client")
 	}
-	if r.userAgent != "vulnesis-pkgregistry" {
-		t.Fatalf("userAgent = %q, want default %q", r.userAgent, "vulnesis-pkgregistry")
+	if r.userAgent != "vulnetix-pkgregistry" {
+		t.Fatalf("userAgent = %q, want default %q", r.userAgent, "vulnetix-pkgregistry")
 	}
 	if r.onPersistErr != nil {
 		t.Fatal("WithPersistErrorHandler(nil) set a handler")
