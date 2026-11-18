@@ -5,6 +5,9 @@
 /dist/
 
 # Vulnetix local tooling cache (machine-specific)
+# Vulnesis local tooling cache (machine-specific)
 .vulnetix/
+.vulnesis/
 !.vulnetix/workflow.yaml
+!.vulnesis/workflow.yaml
 !.vulnetix/workflow.yaml

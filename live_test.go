@@ -8,11 +8,11 @@ import (
 )
 
 // Live integration tests against the real public registries. Opt-in (network):
-// run with VULNETIX_LIVE_REGISTRY=1. Skipped by default so CI stays hermetic.
+// run with VULNESIS_LIVE_REGISTRY=1. Skipped by default so CI stays hermetic.
 func liveOrSkip(t *testing.T) {
 	t.Helper()
-	if os.Getenv("VULNETIX_LIVE_REGISTRY") != "1" {
-		t.Skip("set VULNETIX_LIVE_REGISTRY=1 to run live registry tests")
+	if os.Getenv("VULNESIS_LIVE_REGISTRY") != "1" {
+		t.Skip("set VULNESIS_LIVE_REGISTRY=1 to run live registry tests")
 	}
 }
 

@@ -25,7 +25,7 @@ Requesting any other ecosystem returns `ErrUnsupportedEcosystem`.
 ## Quick start
 
 ```go
-import "github.com/vulnetix/pkgregistry"
+import "github.com/vulnesis/pkgregistry"
 
 r := pkgregistry.New()
 client, err := r.Client(pkgregistry.EcosystemNPM)
@@ -69,7 +69,7 @@ Errors: `ErrUnsupportedEcosystem` (no client for the requested ecosystem) and
 | `WithBaseURL` | Override the registry base URL for one ecosystem, for example an org mirror or an `httptest` server in tests. |
 | `WithUserAgent` | Set the `User-Agent` sent on registry requests. |
 
-The default user agent is `"vulnetix-pkgregistry"`.
+The default user agent is `"vulnesis-pkgregistry"`.
 
 ## HTTP behaviour
 
@@ -97,7 +97,7 @@ integration tests against the real public registries are opt-in via the
 environment variable:
 
 ```
-VULNETIX_LIVE_REGISTRY=1 go test ./...
+VULNESIS_LIVE_REGISTRY=1 go test ./...
 ```
 
 ## Development

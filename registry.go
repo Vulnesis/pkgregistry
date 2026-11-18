@@ -133,7 +133,7 @@ func New(opts ...Option) *Registry {
 	r := &Registry{
 		httpClient: defaultHTTPClient(),
 		baseURLs:   map[string]string{},
-		userAgent:  "vulnetix-pkgregistry",
+		userAgent:  "vulnesis-pkgregistry",
 	}
 	for _, o := range opts {
 		o(r)

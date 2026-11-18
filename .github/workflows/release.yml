@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: [self-hosted, Linux, X64, vulnetix-local]
+    runs-on: [self-hosted, Linux, X64, vulnesis-local]
     steps:
       - name: Checkout
         uses: actions/checkout@v7.0.1
