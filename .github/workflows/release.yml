@@ -1,12 +1,14 @@
 name: Release
 
-# Auto-versions and publishes a GitHub Release on every push to main.
-# The next semver is derived from Conventional Commit messages since the last tag:
-#   fix:              -> patch (v0.0.X)
+# Auto-versions and publishes a GitHub Release on a push to main that carries a
+# releasable change. The next semver is derived from Conventional Commit
+# messages since the last tag (the org rule, Vulnesis/ops DEPLOYMENTS.md):
+#   fix: / perf:      -> patch (v0.0.X)
 #   feat:             -> minor (v0.X.0)
-#   feat!: / BREAKING CHANGE -> major (vX.0.0)
-# Anything else falls back to default_bump (patch). Set default_bump to false
-# below to release ONLY when a feat/fix is present.
+#   any type with ! / BREAKING CHANGE -> major (vX.0.0)
+# Any other type (ci, docs, chore, build, test, style, refactor) cuts no
+# release: default_bump is false, so the tag and release steps are skipped.
+# (The preset also releases a `Revert "..."` commit as a patch.)
 #
 # Because Go modules are versioned by their git tag, this tag *is* the release.
 
@@ -53,7 +55,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           release_branches: main
-          default_bump: patch
+          default_bump: false
           tag_prefix: v
 
       - name: Create GitHub Release
